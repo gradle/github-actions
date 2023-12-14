@@ -1,0 +1,32 @@
+name: Publish Maven Build Scans action
+description: Publish Maven Build Scans previously saved with the Maven Build Scan setup action
+author: Gradle team
+
+inputs:
+  develocity-url:
+    description: 'Develocity URL'
+    required: true
+  develocity-access-key:
+    description: 'Develocity access key'
+    required: false
+  develocity-allow-untrusted:
+    description: 'Develocity allow-untrusted flag'
+    default: 'false'
+  skip-comment:
+    description: 'Whether to comment or not the pull-request with Build Scan links'
+    default: 'false'
+  skip-summary:
+    description: 'Whether to add or not a summary to the GitHub workflow'
+    default: 'false'
+  authorized-list:
+    description: 'CSV List of users allowed to publish Build Scans'
+    default: ''
+    required: false
+  github-token:
+    description: 'The token used for Github API requests'
+    default: ${{ github.token }}
+    required: false
+
+runs:
+  using: node20
+  main: dist/index.js

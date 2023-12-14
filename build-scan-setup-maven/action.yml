@@ -1,0 +1,42 @@
+name: Maven Build Scan setup action
+description: Setup action to capture Maven Build Scans metadata
+author: Gradle team
+
+inputs:
+  workflow-name:
+    description: 'Name of the workflow triggering the build'
+    required: false
+    default: ${{ github.workflow }}
+  job-name:
+    description: 'Name of the job triggering the build'
+    required: false
+    default: ${{ github.job }}
+  maven-home-search-patterns:
+    description: 'List of patterns to search for maven home (csv format)'
+    required: false
+    default: ~/.m2/wrapper/dists/apache-maven-*/*/apache-maven-*/,/usr/share/apache-maven-*/,C:/Users/runneradmin/.m2/wrapper/dists/apache-maven-*/*/apache-maven-*/,C:/ProgramData/chocolatey/lib/maven/apache-maven-*/
+  build-scan-capture-strategy:
+    description: 'Build Scan capture strategy (ALWAYS, ON_FAILURE, ON_DEMAND)'
+    required: false
+    default: ALWAYS
+  build-scan-capture-unpublished-enabled:
+    description: 'Flag to enable unpublished Build Scan capture'
+    required: false
+    default: true
+  build-scan-capture-link-enabled:
+    description: 'Flag to enable Build Scan link capture'
+    required: false
+    default: true
+  wrapper-init:
+    description: 'Flag to enable the Maven wrapper by running it (with -version) in order to trigger local installation'
+    required: false
+    default: false
+  wrapper-path:
+    description: 'Path to mvnw script (used in combination with wrapper-init)'
+    required: false
+    default: ''
+
+runs:
+  using: node20
+  main: dist/main/index.js
+  post: dist/post/index.js

@@ -1,182 +1,46 @@
 # github-actions
 
-A collection of composite Github Actions
+A collection of composite GitHub Actions
 
-## Publish Build Scans® from forked repositories
+## Publish Build Scans® for pull-requests issued from forked repositories
 
 ### Description
-When submitting a pull request, a Github workflow that validates the change is usually triggered, however the Develocity Build Scans® can’t be published for 2 reasons:
-- The Develocity Terms of Service have not been agreed to by the contributor
-- Workflows from forked repositories do not have access to secrets although an access token is required to publish a Build Scan®
+When submitting a pull request, a GitHub workflow that validates the change is usually triggered, however the Develocity Build Scans® can’t be published 
+as workflows from forked repositories do not have access to secrets although an access token is required to publish a Build Scan®
 
 This repository contains some actions which can be combined to solve this.
 
-### Architecture
-![Architecture](./doc/architecture.png)
-
-### terms-of-service-acceptance/run
-
-A composite action to verify that Develocity Terms of Service have been accepted.
-
-This action checks if the user submitting a pull-request has accepted the Terms of Service.
-If the user has previously accepted the terms, then the action succeeds.
-If not, a comment is made on the pull-request asking the user to accept and the action fails. The user can then accept the Terms of Service by responding with a specific comment on the pull-request.
-
-See the [cla-assistant-lite documentation](https://github.com/marketplace/actions/cla-assistant-lite) for more details.
-
-**Dependencies**:
-
-- [cla-assistant-lite](https://github.com/marketplace/actions/cla-assistant-lite)
-
-**Event Triggers**:
-
-This action should be configured to respond to the following event triggers:
-- `pull_request_target`: to check if the user has previously accepted the Terms of Service when submitting the pull-request.
-- `issue-comment`: to check if any new pull-request comment is accepting the Terms of Service.
-
-**Permissions**:
-
-The following permissions are required for this action to operate:
-- `contents: write`: to create/edit the signature file
-- `pull-requests: write`: to comment the pull-request
-- `actions: write`: to update the pull-request status check
-- `statuses: write`: to update the pull-request status check
-
-**Action inputs**:
-
-| Name                                     | Description                                                                                    | Default                                                                                                                                                      |
-|------------------------------------------|------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `tos-location`                           | Terms Of Service location (URL)                                                                |                                                                                                                                                              |
-| `signature-branch`                       | *Optional*: Git branch where the signature file will be stored                                 | `${{ github.event.repository.default_branch }}`                                                                                                              |
-| `signature-location`                     | *Optional*: Signature file location                                                            | `.github/develocity-tos.json`                                                                                                                                |
-| `pr-comment-tos-acceptance-missing`      | *Optional*: pull-request comment added when Terms of Service have not previously been accepted | `Please accept [Develocity Terms Of Service]({0}) to get your pull-request Build Scan published by commenting this pull-request with the following message:` |
-| `pr-comment-tos-acceptance-request`      | *Optional*: pull-request comment to accept the Terms of Service                                | `I have read Develocity Terms Of Service and I hereby accept the Terms`                                                                                      |
-| `pr-comment-tos-acceptance-confirmation` | *Optional*: pull-request comment added when Terms of Service are accepted                      | `All Contributors have accepted Develocity Terms Of Service.`                                                                                                |
-| `white-list`                             | *Optional*: CSV List of users not required to accept the Terms of Service                      | `''`                                                                                                                                                         |
-| `github-token`                           | *Optional*: Github token                                                                       | `${{ github.token }}`                                                                                                                                        |
-
-**Usage**:
-
-```yaml
-name: Gradle - Terms of Service acceptance verification
-
-on:
-  # issue_comment event is triggered when a pull-request is commented
-  issue_comment:
-    types: [ created ]
-  pull_request_target:
-
-jobs:
-  run-terms-of-service-acceptance:
-    runs-on: ubuntu-latest
-    permissions:
-      # required to update signature file
-      contents: write
-      # required to comment pull-request
-      pull-requests: write
-      # required to update pull-request status check
-      actions: write
-      statuses: write
-    steps:
-      - name: Run Terms of Service acceptance verification
-        uses: gradle/github-actions/terms-of-service-acceptance/run@v1.0
-        with:
-          # tos-location can also point to a file in a Github repository with this syntax: /<owner>/<repo>/blob/<branch>/tos.html
-          tos-location: 'https://foo.bar/tos.html'
-          # Optional inputs
-          #pr-comment-tos-acceptance-missing: 'Please accept [Develocity Terms Of Service]({0}) to get your pull-request Build Scan published by commenting this pull-request with the following message:'
-          #pr-comment-tos-acceptance-request: 'I have read Develocity Terms Of Service and I hereby accept the Terms'
-          #pr-comment-tos-acceptance-validation: 'All Contributors have accepted Develocity Terms Of Service.'
-          #signature-branch: 'main'
-          #signature-location: '.github/develocity-tos.json'
-          #white-list: 'bot1,bot2'
-          #github-token: ${{ secrets.MY_PAT }}
-```
-
-### maven-build-scan/save
-A Composite action to save an unpublished Maven Build Scan®.
-
-The action saves unpublished Build Scan® data as a workflow artifact with name `maven-build-scan-data`, which can then be published in a dependent workflow.
-
-Use this action in your existing pull-request workflows to allow Build Scan® to be published. Since these workflows are running in an untrusted context, they do not have access to the required secrets to publish the Build Scan® directly.
-
-Since the Develocity Maven Extension only saves the Build Scan® data for the most recent Maven execution, a step using this action must be inserted after each Maven execution step in the workflow.
-
-**Dependencies**:
-
-- [actions/upload-artifact](https://github.com/marketplace/actions/upload-a-build-artifact)
-
-**Event Triggers**:
-
-This composite action can be called from any workflow but the main use case is to save unpublished Build Scan® issued from workflows triggered on `pull_request` event
-
-**Action inputs**:
-
-N/A
-
-**Usage**:
-
-Insert the `Save Build Scan` step after each Maven execution step in the Github workflow called to validate a pull-request (`Build with Maven` here).
-Use the `always` flag to run the step even if the build step failed.
-
-```yaml
-[...]
-      - name: Build with Maven
-        run: mvn clean package
-      - name: Save Build Scan
-        uses: gradle/github-actions/maven-build-scan/save@v1.0
-        if: always()
-[...]
-```
-
-### maven-build-scan/publish
-
-This action will publish all Maven Build Scans® that have been saved as workflow artifacts by the `maven-build-scan/save` action.
-
-Use this action in a separate workflow with a `workflow_run` event trigger, that will run after an existing pull-request workflow has completed. The action will download any saved Build Scan® and publish them to Develocity.
-This event allows access to the repository secrets (_Develocity Access Key_) which is required to publish a Build Scan® to Gradle Enterprise when authentication is enabled.
-
-The Build Scan® publication requires the Gradle Terms of Service to be accepted, this can be achieved by adding a workflow using the `terms-of-service-acceptance/run` action.
-The `terms-of-service-acceptance/verify` action is used to ensure this workflow passed successfully. 
-
-**Dependencies**:
-
-- [dawidd6/action-download-artifact](https://github.com/marketplace/actions/download-workflow-artifact)
-
-**Event Triggers**:
-
-This action should be configured to respond to the following event trigger:
-- `workflow_run`: to run after the pull-request workflow.
-
-**Permissions**:
-
-The following permissions are required for this action to operate:
-- `pull-requests: write`: to comment the pull-request
-
-**Action inputs**:
-
-| Name                          | Description                                   | Default               |
-|-------------------------------|-----------------------------------------------|-----------------------|
-| `develocity-url`              | Develocity URL                                |                       |
-| `develocity-access-key`       | *Optional*: Develocity access key             |                       |
-| `develocity-allow-untrusted`  | *Optional*: Develocity allow-untrusted flag   | `false`               |
-| `github-token`                | *Optional*: Github token                      | `${{ github.token }}` |
-
-**Usage**:
-
 _Note:_
-Some parameters need to be adjusted here:
-- The workflow name (here `PR Check`) has to be adjusted to the `name` used in the workflow run to validate pull-requests
-- The workflow-job-name (here `run-terms-of-service-acceptance`) has to be adjusted to the job `name` used in the workflow to verify the Terms of Service approval.
-- The Develocity URL (here `https://<MY_DEVELOCITY_URL>`)
-- The secret name holding the Develocity access key (here `<DEVELOCITY_ACCESS_KEY>`)
+The `Approve and Run` manual step documented [here](https://docs.github.com/en/actions/managing-workflow-runs/approving-workflow-runs-from-public-forks) must be enabled on the GitHub repository configuration to meet legal requirements (this is the default configuration).
+
+### Gradle workflow
+
+#### Architecture
+![Architecture](./doc/architecture-gradle.png)
+
+#### Usage
+
+In the GitHub workflow called to validate a pull-request, insert the `Setup Build Scan dump capture` once in each job having steps invoking Gradle.
 
 ```yaml
-name: Publish Maven Build Scans
+name: PR Build
+jobs:
+  build:  
+      - name: Setup Gradle Build Scan dump capture
+        uses: gradle/github-actions/build-scan-setup-gradle@v1-beta
+      - name: Build with Gradle
+        run: ./gradlew build
+[...]
+```
+
+Add a new GitHub workflow to publish the Build Scans® saved during the previous step
+
+```yaml
+name: Upload Build Scans
 
 on:
   workflow_run:
-    workflows: [ "PR Check" ]
+    workflows: [ "PR Build" ]
     types: [ completed ]
 
 jobs:
@@ -184,14 +48,392 @@ jobs:
   publish-build-scans:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       pull-requests: write
     steps:
-      - name: Verify Terms of Service acceptance job passed
-        uses: gradle/github-actions/terms-of-service-acceptance/verify@v1.0
+      - name: Setup Build Scan link capture
+        uses: gradle/github-actions/build-scan-setup-gradle@v1-beta
+      - name: Publish Build Scans
+        uses: gradle/github-actions/build-scan-publish-gradle@v1-beta
         with:
-          terms-of-service-acceptance-workflow-job-name: 'run-terms-of-service-acceptance'
-      - name: Publish Maven Build Scans
-        uses: gradle/github-actions/maven-build-scan/publish@v1.0
+          develocity-url: 'https://<MY_DEVELOCITY_URL>'
+          develocity-access-key: ${{ secrets.<DEVELOCITY_ACCESS_KEY> }}
+```
+
+_Note:_
+Some parameters need to be adjusted here:
+- The workflow name (here `PR Build`) triggered when a pull-request is submitted
+- The Develocity URL (here `https://<MY_DEVELOCITY_URL>`)
+- The secret name holding the Develocity access key (here `<DEVELOCITY_ACCESS_KEY>`)
+
+#### Implementation details
+
+##### build-scan-setup-gradle
+
+The action addresses two use cases:
+- Save unpublished Build Scan® data as a workflow artifact with name `gradle-build-scan-data`, which can then be published in a dependent workflow.
+- Capture links of Build Scan® published to Develocity, which can then be displayed as a pull-request comment
+
+The _capture strategy_ can be customized:
+- `ALWAYS`: default behavior, capture will be attempted on each Maven invocation
+- `ON_FAILURE`: capture will be attempted only on failed builds
+- `ON_DEMAND`: capture will be attempted if `CAPTURE_BUILD_SCAN=true` in the environment
+
+The _capture_ can be _enabled_/_disabled_ separately:
+- `build-scan-capture-unpublished-enabled`: to disable unpublished Build Scan® capture
+- `build-scan-capture-link-enabled`: to disable Build Scan® link capture
+
+The process is handled by a [Gradle init script](https://docs.gradle.org/current/userguide/init_scripts.html#sec:using_an_init_script) `gradle-build-scan-capture.gradle` which is invoked on each Gradle build.
+The init script is registered at the beginning of the GitHub workflow job, by copying it in `$GRADLE_USER_HOME/init.d/`.
+
+`workflow-filename` and `job-filename` are only used in the summary rendered by the `build-scan-publish-gradle` action. Default values can be overridden, which is highly recommended when using a [matrix strategy](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs) as those values would collide on each matrix case.
+
+**Event Triggers**:
+
+- `pull_request`: To capture unpublished Build Scan®
+- `workflow_run`: To capture Build Scan® links
+
+**Action inputs**:
+
+| Name                                     | Description                                                             | Default                                                                                                                                                                                                       |
+|------------------------------------------|-------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `workflow-filename`                      | *Optional*: Name of the workflow triggering the build                   | `${{ github.workflow }}`                                                                                                                                                                                      |
+| `job-filename`                           | *Optional*: Name of the job triggering the build                        | `${{ github.job }}`                                                                                                                                                                                           |
+| `build-scan-capture-strategy`            | *Optional*: Build Scan capture strategy (ALWAYS, ON_FAILURE, ON_DEMAND) | `ALWAYS`                                                                                                                                                                                                      |
+| `build-scan-capture-unpublished-enabled` | *Optional*: Flag to enable unpublished Build Scan capture               | `true`                                                                                                                                                                                                        |
+| `build-scan-capture-link-enabled`        | *Optional*: Flag to enable Build Scan link capture                      | `true`                                                                                                                                                                                                        |
+
+**Usage**:
+
+Insert the `Setup Gradle Build Scan dump capture` once in each job having steps invoking Gradle.
+
+```yaml
+name: PR Build
+jobs:
+  [...]
+  build:
+    [...]
+    - name: Setup Gradle Build Scan dump capture
+      uses: gradle/github-actions/build-scan-setup-gradle@v1-beta
+    - name: Build with Gradle
+      run: ./gradlew build
+  [...]
+```
+
+##### build-scan-publish-gradle
+
+The action will download any saved Build Scan® and publish them to Develocity.
+
+The list of pull-request authors allowed to publish a Build Scan® can be specified by the csv parameter `authorized-list`.
+The action will publish Build Scans® if the initial pull-request author belongs to the list.
+
+By default, the pull-request will be commented with a summary:
+
+![comment](./doc/summary-comment.png)
+
+This comment will not be created if `skip-comment` is set to `true`, the summary details will in this case be accessible in `$RUNNER_TEMP/build-scan-data-gradle/build-metadata.json` with the format below:
+
+```json
+{
+  "prNumber": 42,
+  "artifactId": 1080352553,
+  "builds": [
+    {
+      "workflowName": "PR Build",
+      "jobName": "test-matrix",
+      "buildToolVersion": "8.5",
+      "requestedTasks": "build",
+      "buildId": "1701252758489-c27ff62b-3ab5-45f4-b7e4-2b362cf5220e",
+      "buildFailure": false,
+      "buildScanLink": "https://<DEVELOCITY_URL>/s/itg2ytkifb6wa"
+    },
+    {
+      "workflowName": "PR Build",
+      "jobName": "test-matrix",
+      "buildToolVersion": "8.5",
+      "requestedTasks": "test",
+      "buildId": "1701252760831-89e3583d-3c3c-4a64-a958-e61aa791f4f4",
+      "buildFailure": true,
+      "buildScanLink": "https://<DEVELOCITY_URL>/s/dxqnlj5hgybq4"
+    }
+  ]
+}
+```
+By default, a summary will be added to the GitHub workflow calling the action (can be skipped with `skip-summary: true`):
+
+![workflow](./doc/summary-workflow.png)
+
+
+**Event Triggers**:
+
+- `workflow_run`: to run after the build workflow. This event allows access to the repository secrets (_Develocity Access Key_) which is required to publish a Build Scan® to Develocity when authentication is enabled.
+
+**Permissions**:
+
+The following permissions are required for this action to operate:
+- `pull-requests: write`: to comment the pull-request
+- `actions: write`: to delete a workflow artifact
+
+**Action inputs**:
+
+| Name                         | Description                                                                  | Default                  |
+|------------------------------|------------------------------------------------------------------------------|--------------------------|
+| `develocity-url`             | Develocity URL                                                               |                          |
+| `develocity-access-key`      | *Optional*: Develocity access key                                            |                          |
+| `develocity-allow-untrusted` | *Optional*: Develocity allow-untrusted flag                                  | `false`                  |
+| `skip-comment`               | *Optional*: Whether to comment or not the pull-request with Build Scan links | `false`                  |
+| `skip-summary`               | *Optional*: Whether to add or not a summary to the GitHub workflow           | `false`                  |
+| `authorized-list`            | *Optional*: CSV List of users allowed to publish Build Scans                 | `''`                     |
+| `github-token`               | *Optional*: Github token                                                     | `${{ github.token }}`    |
+
+**Usage**:
+
+_Note:_
+Some parameters need to be adjusted here:
+- The workflow name (here `PR Build`) triggered when a pull-request is submitted
+- The Develocity URL (here `https://<MY_DEVELOCITY_URL>`)
+- The secret name holding the Develocity access key (here `<DEVELOCITY_ACCESS_KEY>`)
+
+```yaml
+name: Upload Build Scans
+
+on:
+  workflow_run:
+    workflows: [ "PR Build" ]
+    types: [ completed ]
+
+jobs:
+
+  publish-build-scans:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: write
+    steps:
+      - name: Setup Gradle Build Scan link capture
+        uses: gradle/github-actions/build-scan-setup-gradle@v1-beta
+      - name: Publish Build Scans
+        uses: gradle/github-actions/build-scan-publish-gradle@v1-beta
+        with:
+          develocity-url: 'https://<MY_DEVELOCITY_URL>'
+          develocity-access-key: ${{ secrets.<DEVELOCITY_ACCESS_KEY> }}
+```
+
+### Maven workflow
+
+#### Architecture
+![Architecture](./doc/architecture-maven.png)
+
+#### Usage
+
+In the GitHub workflow called to validate a pull-request, insert the `Setup Build Scan dump capture` once in each job having steps invoking Maven.
+
+```yaml
+name: PR Build
+jobs:
+  build:  
+      - name: Setup Maven Build Scan dump capture
+        uses: gradle/github-actions/build-scan-setup-maven@v1-beta
+      - name: Build with Maven
+        run: ./mvnw clean package
+[...]
+```
+
+Add a new GitHub workflow to publish the Build Scans® saved during the previous step
+
+```yaml
+name: Upload Build Scans
+
+on:
+  workflow_run:
+    workflows: [ "PR Build" ]
+    types: [ completed ]
+
+jobs:
+
+  publish-build-scans:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: write
+    steps:
+      - name: Setup Build Scan link capture
+        uses: gradle/github-actions/build-scan-setup-maven@v1-beta
+      - name: Publish Build Scans
+        uses: gradle/github-actions/build-scan-publish-maven@v1-beta
+        with:
+          develocity-url: 'https://<MY_DEVELOCITY_URL>'
+          develocity-access-key: ${{ secrets.<DEVELOCITY_ACCESS_KEY> }}
+```
+
+_Note:_
+Some parameters need to be adjusted here:
+- The workflow name (here `PR Build`) triggered when a pull-request is submitted
+- The Develocity URL (here `https://<MY_DEVELOCITY_URL>`)
+- The secret name holding the Develocity access key (here `<DEVELOCITY_ACCESS_KEY>`)
+- If using the [Maven wrapper](https://maven.apache.org/wrapper/), check the [relevant section](#Usage with Maven Wrapper)
+ 
+#### Implementation details
+
+##### build-scan-setup-maven
+
+The action addresses two use cases:
+- Save unpublished Build Scan® data as a workflow artifact with name `build-scan-data-maven`, which can then be published in a dependent workflow.
+- Capture links of Build Scan® published to Develocity, which can then be displayed as a pull-request comment
+
+The _capture strategy_ can be customized:
+- `ALWAYS`: default behavior, capture will be attempted on each Maven invocation
+- `ON_FAILURE`: capture will be attempted only on failed builds
+- `ON_DEMAND`: capture will be attempted if `CAPTURE_BUILD_SCAN=true` in the environment
+
+The _capture_ can be _enabled_/_disabled_ separately:
+- `build-scan-capture-unpublished-enabled`: to disable unpublished Build Scan® capture
+- `build-scan-capture-link-enabled`: to disable Build Scan® link capture
+
+The process is handled by a [Maven extension](https://maven.apache.org/guides/mini/guide-using-extensions.html) `maven-build-scan-capture-extension.jar` which is running during each Maven invocation.
+The extension must be registered at the beginning of the GitHub workflow job, by copying it in `$MAVEN_HOME/lib/ext/`.
+The `MAVEN_HOME` environment variable is used if present, otherwise, the csv list of folders `maven-home-search-patterns` is searched. This variable van be configured.
+
+`workflow-filename` and `job-filename` are only used in the summary rendered by the `maven-build-scan-publish` action. Default values can be overridden, which is highly recommended when using a [matrix strategy](https://docs.github.com/en/actions/using-jobs/using-a-matrix-for-your-jobs) as those values would collide on each matrix case. 
+
+**Event Triggers**:
+
+- `pull_request`: To capture unpublished Build Scan®
+- `workflow_run`: To capture Build Scan® links
+
+**Action inputs**:
+
+| Name                                     | Description                                                                                                         | Default                                                                                                                                                                                                       |
+|------------------------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `workflow-filename`                      | *Optional*: Name of the workflow triggering the build                                                               | `${{ github.workflow }}`                                                                                                                                                                                      |
+| `job-filename`                           | *Optional*: Name of the job triggering the build                                                                    | `${{ github.job }}`                                                                                                                                                                                           |
+| `maven-home-search-patterns`             | *Optional*: List of patterns to search for maven home (csv format)                                                  | `~/.m2/wrapper/dists/apache-maven-*/*/apache-maven-*/,/usr/share/apache-maven-*/,C:/Users/runneradmin/.m2/wrapper/dists/apache-maven-*/*/apache-maven-*/,C:/ProgramData/chocolatey/lib/maven/apache-maven-*/` |
+| `build-scan-capture-strategy`            | *Optional*: Build Scan capture strategy (ALWAYS, ON_FAILURE, ON_DEMAND)                                             | `ALWAYS`                                                                                                                                                                                                      |
+| `build-scan-capture-unpublished-enabled` | *Optional*: Flag to enable unpublished Build Scan capture                                                           | `true`                                                                                                                                                                                                        |
+| `build-scan-capture-link-enabled`        | *Optional*: Flag to enable Build Scan link capture                                                                  | `true`                                                                                                                                                                                                        |
+| `wrapper-init`                           | *Optional*: Flag to enable the Maven wrapper by running it (with `-version`) in order to trigger local installation | `false`                                                                                                                                                                                                       |
+| `wrapper-path`                           | *Optional*: Path to mvnw script (used in combination with `wrapper-init`)                                           | ``                                                                                                                                                                                                            |
+
+**Usage**:
+
+Insert the `Setup Maven Build Scan dump capture` once in each job having steps invoking Maven.
+
+```yaml
+name: PR Build
+jobs:
+  [...]
+  build:
+    [...]
+    - name: Setup Maven Build Scan dump capture
+      uses: gradle/github-actions/build-scan-setup-maven@v1-beta
+    - name: Build with Maven
+      run: ./mvnw clean package
+  [...]
+```
+
+##### Usage with Maven Wrapper
+
+When using the Maven wrapper, the Maven extension can't be registered once at the beginning of the build by copying it to `$MAVEN_HOME/lib/ext` as the folder is created on first `mvnw` invocation (and emptied if already present).
+
+There are three options in this situation (by order of preference):
+1. Set `wrapper-init: true` to trigger the installation of Maven when running the `gradle/github-actions/build-scan-setup-maven` step
+2. Register the Maven extension as a Maven CLI argument (`-Dmaven.ext.class.path`) 
+3. Add a previous step calling `mvnw` and reference `gradle/github-actions/build-scan-setup-maven` step after
+
+##### build-scan-publish-maven
+
+The action will download any saved Build Scan® and publish them to Develocity.
+
+The list of pull-request authors allowed to publish a Build Scan® can be specified by the csv parameter `authorized-list`. 
+The action will publish Build Scans® if the initial pull-request author belongs to the list.
+
+By default, the pull-request will be commented with a summary:
+
+![comment](./doc/summary-comment.png)
+
+This comment will not be created if `skip-comment` is set to `true`, the summary details will in this case be accessible in `$RUNNER_TEMP/build-scan-data-maven/build-metadata.json` with the format below:
+
+```json
+{
+  "prNumber": 42,
+  "artifactId": 1080352553,
+  "builds": [
+    {
+      "workflowName": "PR Build",
+      "jobName": "test-matrix",
+      "buildToolVersion": "3.8.8",
+      "requestedTasks": "clean build",
+      "buildId": "1701252758489-c27ff62b-3ab5-45f4-b7e4-2b362cf5220e",
+      "buildFailure": false,
+      "buildScanLink": "https://<DEVELOCITY_URL>/s/itg2ytkifb6wa"
+    },
+    {
+      "workflowName": "PR Build",
+      "jobName": "test-matrix",
+      "buildToolVersion": "3.8.8",
+      "requestedTasks": "install",
+      "buildId": "1701252760831-89e3583d-3c3c-4a64-a958-e61aa791f4f4",
+      "buildFailure": true,
+      "buildScanLink": "https://<DEVELOCITY_URL>/s/dxqnlj5hgybq4"
+    }
+  ]
+}
+```
+By default, a summary will be added to the GitHub workflow calling the action (can be skipped with `skip-summary` is set to `true`):
+
+![workflow](./doc/summary-workflow.png)
+
+
+**Event Triggers**:
+
+- `workflow_run`: to run after the build workflow. This event allows access to the repository secrets (_Develocity Access Key_) which is required to publish a Build Scan® to Develocity when authentication is enabled.
+
+**Permissions**:
+
+The following permissions are required for this action to operate:
+- `pull-requests: write`: to comment the pull-request
+- `actions: write`: to delete a workflow artifact
+
+**Action inputs**:
+
+| Name                         | Description                                                                  | Default                  |
+|------------------------------|------------------------------------------------------------------------------|--------------------------|
+| `develocity-url`             | Develocity URL                                                               |                          |
+| `develocity-access-key`      | *Optional*: Develocity access key                                            |                          |
+| `develocity-allow-untrusted` | *Optional*: Develocity allow-untrusted flag                                  | `false`                  |
+| `skip-comment`               | *Optional*: Whether to comment or not the pull-request with Build Scan links | `false`                  |
+| `skip-summary`               | *Optional*: Whether to add or not a summary to the GitHub workflow           | `false`                  |
+| `authorized-list`            | *Optional*: CSV List of users allowed to publish Build Scans                 | `''`                     |
+| `github-token`               | *Optional*: Github token                                                     | `${{ github.token }}`    |
+
+**Usage**:
+
+_Note:_
+Some parameters need to be adjusted here:
+- The workflow name (here `PR Build`) triggered when a pull-request is submitted
+- The Develocity URL (here `https://<MY_DEVELOCITY_URL>`)
+- The secret name holding the Develocity access key (here `<DEVELOCITY_ACCESS_KEY>`)
+
+```yaml
+name: Upload Build Scans
+
+on:
+  workflow_run:
+    workflows: [ "PR Build" ]
+    types: [ completed ]
+
+jobs:
+
+  publish-build-scans:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: write
+    steps:
+      - name: Setup Maven Build Scan link capture
+        uses: gradle/github-actions/build-scan-setup-maven@v1-beta
+      - name: Publish Build Scans
+        uses: gradle/github-actions/build-scan-publish-maven@v1-beta
         with:
           develocity-url: 'https://<MY_DEVELOCITY_URL>'
           develocity-access-key: ${{ secrets.<DEVELOCITY_ACCESS_KEY> }}
